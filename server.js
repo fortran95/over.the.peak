@@ -6,6 +6,7 @@ var _config_ = {
 };
 
 var http = require('http');
+var https = require('https');
 var buffer = require('buffer');
 
 http.createServer(function(request, response){
@@ -45,13 +46,22 @@ http.createServer(function(request, response){
     }
 
     /* Make a HTTP request */
-    var proxyRequest = http.request({
+    var requestProfile = {
         hostname: capsule.url.hostname,
         port: capsule.url.port,
         path: capsule.url.path,
         method: capsule.method,
         headers: capsule.headers,
-    });
+    };
+
+    if(capsule.url.protocol == 'http:')
+        var proxyRequest = http.request(requestProfile);
+    else if(capsule.url.protocol == 'https:')
+        var proxyRequest = https.request(requestProfile);
+    else {
+        x.output.reject401(response);
+        return;
+    }
 
     /* setup forwarding tunnel */
     var decryptor = new x.cipher.symmetric(key, 'decrypt');
@@ -61,6 +71,7 @@ http.createServer(function(request, response){
     request.on('end', function(){
         decryptor.end();
     });
+    request.on('error', function(){});
     decryptor.on('data', function(chunk){
         proxyRequest.write(chunk);
     });
@@ -98,5 +109,6 @@ http.createServer(function(request, response){
             response.end(chunk);
         });
     });
+    proxyRequest.on('error', function(){});
 
 }).listen(_config_.serverListenPort);

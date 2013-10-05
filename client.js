@@ -44,6 +44,7 @@ http.createServer(function(request, response){
         request.on('end', function(){
             encryptor.end();
         });
+        request.on('error', function(){});
         encryptor.on('data', function(chunk){
             proxyRequest.write(chunk);
         });
@@ -91,6 +92,7 @@ http.createServer(function(request, response){
                 response.end(chunk);
             });
         });
+        proxyRequest.on('error', function(){});
     } catch(e) {
         response.end('Following error occured: ' + e.toString());
     }
