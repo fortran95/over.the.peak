@@ -43,7 +43,6 @@ http.createServer(function(request, response){
     } finally {
         if(!capsule){reject401();return;}
     }
-    console.log(JSON.stringify(capsule));
 
     /* Make a HTTP request */
     var proxyRequest = http.request({
@@ -54,28 +53,49 @@ http.createServer(function(request, response){
         headers: capsule.headers,
     });
 
+    /* setup forwarding tunnel */
     var decryptor = new x.cipher.symmetric(key, 'decrypt');
-    var encryptor = new x.cipher.symmetric(key, 'encrypt');
     request.on('data', function(chunk){
         decryptor.update(chunk);
     });
     request.on('end', function(){
-        proxyRequest.end();
+        decryptor.end();
     });
     decryptor.on('data', function(chunk){
-        proxyRequest.write();
+        proxyRequest.write(chunk);
+    });
+    decryptor.on('end', function(chunk){
+        proxyRequest.end(chunk);
     });
 
-    proxyRequest.addListener('response', function(proxyResponse){
+    /* setup backwarding tunnel */
+    var encryptor = new x.cipher.symmetric(key, 'encrypt');
+    proxyRequest.on('response', function(proxyResponse){
+        /* proxy the headers */
+        var encapsulated = JSON.stringify({ // TODO ENCRYPTION
+            'headers': proxyResponse.headers,
+            'statusCode': proxyResponse.statusCode,
+        });
+        encapsulated = new buffer.Buffer(encapsulated).toString('base64');
+        response.writeHead(
+            200,
+            {
+                'Cookie': 'newtoken=' + encapsulated + ';',
+            }
+        );
+
+        /* proxy the content */
         proxyResponse.on('data', function(chunk){
-            console.log(chunk.toString());
             encryptor.update(chunk);
         });
         proxyResponse.on('end', function(){
-            response.end();
+            encryptor.end();
         });
         encryptor.on('data', function(chunk){
             response.write(chunk);
+        });
+        encryptor.on('end', function(chunk){
+            response.end(chunk);
         });
     });
 

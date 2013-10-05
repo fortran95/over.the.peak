@@ -35,29 +35,60 @@ http.createServer(function(request, response){
                 'Authorization': key,
             },
         });
-        var decryptor = new x.cipher.symmetric(key, 'decrypt');
+
+        /* setup upload tunnel */
         var encryptor = new x.cipher.symmetric(key, 'encrypt');
-        request.addListener('data', function(chunk){
+        request.on('data', function(chunk){
             encryptor.update(chunk);
         });
-        encryptor.addListener('data', function(chunk){
+        request.on('end', function(){
+            encryptor.end();
+        });
+        encryptor.on('data', function(chunk){
             proxyRequest.write(chunk);
         });
-        request.addListener('end', function(){
-            proxyRequest.end();
+        encryptor.on('end', function(chunk){
+            proxyRequest.end(chunk);
         });
 
-        /* wait for response */
-        proxyRequest.addListener('response', function(proxyResponse){
-            proxyResponse.addListener('data', function(chunk){
-                console.log(chunk.toString());
-                decryptor.update(chunk.toString());
+        /* setup download tunnel */
+        var decryptor = new x.cipher.symmetric(key, 'decrypt');
+        proxyRequest.on('response', function(proxyResponse){
+            /* Decrypt HTTP request info */
+            var capsule = proxyResponse.headers['cookie'];
+
+            var capsuleTrim0 = capsule.indexOf('newtoken=');
+            if(capsuleTrim0 >= 0){
+                var capsuleTrim1 = capsule.indexOf(';', capsuleTrim0);
+                if(capsuleTrim1 >= capsuleTrim0){
+                    capsule = capsule.substring(capsuleTrim0 + 9, capsuleTrim1);
+                }
+            }
+
+            capsule = new buffer.Buffer(capsule, 'base64').toString();
+            try{
+                capsule = JSON.parse(capsule);
+            } finally {
+                if(!capsule){x.output.reject401(response);return;}
+            }
+
+            /* write http response header */
+            response.writeHeader(
+                capsule.statusCode,
+                capsule.headers
+            );
+
+            proxyResponse.on('data', function(chunk){
+                decryptor.update(chunk);
             });
-            proxyResponse.addListener('end', function(){
-                response.end();
+            proxyResponse.on('end', function(){
+                decryptor.end();
             });
             decryptor.on('data', function(chunk){
                 response.write(chunk);
+            });
+            decryptor.on('end', function(chunk){
+                response.end(chunk);
             });
         });
     } catch(e) {
